@@ -1,0 +1,21 @@
+# HoJayega — GoDaddy (Apache) static hosting config
+#
+# The app uses hash-based routing (URLs like /#/browse-tasks), so every
+# real navigation request only ever hits this one index.html — no rewrite
+# rule is required for routes to work, from the domain root or any
+# subfolder. This file only adds caching/compression for static assets.
+
+# Basic caching for static assets
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+  ExpiresByType image/png "access plus 1 year"
+  ExpiresByType image/jpg "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 year"
+</IfModule>
+
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
+</IfModule>
