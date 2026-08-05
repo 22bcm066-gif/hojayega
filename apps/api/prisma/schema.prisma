@@ -1,0 +1,801 @@
+// HSTLE — "Anything legal. Handled."
+// Prisma schema for the full domain model. See docs/06-database-schema.md for
+// the ER description, rationale, and retention/PII notes behind these models.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  DELETED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum KycDocumentType {
+  AADHAAR_FRONT
+  AADHAAR_BACK
+  PAN
+  SELFIE_LIVENESS
+  BANK_PROOF
+  POLICE_VERIFICATION
+}
+
+enum KycDocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum HelperAvailability {
+  ONLINE
+  OFFLINE
+  BUSY
+}
+
+enum TaskStatus {
+  DRAFT
+  POSTED
+  ACCEPTED
+  HELPER_EN_ROUTE
+  IN_PROGRESS
+  AWAITING_CUSTOMER_APPROVAL
+  COMPLETED
+  CANCELLED
+  DISPUTED
+  REFUNDED
+}
+
+enum TaskActorType {
+  CUSTOMER
+  HELPER
+  ADMIN
+  SYSTEM
+}
+
+enum TaskOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum EscrowStatus {
+  HOLDING
+  RELEASED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  DISPUTED_HOLD
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  WALLET
+  UPI
+  CARD
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum WalletTxnType {
+  CREDIT
+  DEBIT
+  ESCROW_HOLD
+  ESCROW_RELEASE
+  REFUND
+  WITHDRAWAL
+  REFERRAL_BONUS
+  PROMO_CREDIT
+  COMMISSION_DEDUCTION
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VOICE_NOTE
+  SYSTEM
+}
+
+enum NotificationType {
+  TASK_POSTED
+  TASK_ACCEPTED
+  HELPER_EN_ROUTE
+  HELPER_ARRIVED
+  TASK_COMPLETED
+  PAYMENT_RELEASED
+  DISPUTE_UPDATE
+  KYC_UPDATE
+  PROMO
+  REFERRAL
+  SYSTEM
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+  WEB
+}
+
+enum ReviewDirection {
+  CUSTOMER_TO_HELPER
+  HELPER_TO_CUSTOMER
+}
+
+enum DisputeReason {
+  TASK_NOT_COMPLETED
+  POOR_QUALITY
+  OVERCHARGED
+  HELPER_NO_SHOW
+  CUSTOMER_UNRESPONSIVE
+  PAYMENT_ISSUE
+  SAFETY_CONCERN
+  OTHER
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED_CUSTOMER
+  RESOLVED_HELPER
+  RESOLVED_SPLIT
+  CLOSED
+}
+
+enum AuditActorType {
+  USER
+  HELPER
+  ADMIN
+  SYSTEM
+}
+
+enum AdminPermissionLevel {
+  SUPPORT
+  OPS
+  FINANCE
+  SUPER_ADMIN
+}
+
+enum DiscountType {
+  PERCENT
+  FLAT
+}
+
+enum ReferralStatus {
+  PENDING
+  COMPLETED
+  REWARDED
+}
+
+enum SosStatus {
+  TRIGGERED
+  ACKNOWLEDGED
+  RESOLVED
+  FALSE_ALARM
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Identity
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id                String     @id @default(cuid())
+  phone             String     @unique
+  phoneVerifiedAt   DateTime?
+  email             String?    @unique
+  name              String?
+  avatarUrl         String?
+  dateOfBirth       DateTime?
+  gender            Gender?
+  preferredLanguage String     @default("en")
+  city              String     @default("Ahmedabad")
+  status            UserStatus @default(ACTIVE)
+  isHelper          Boolean    @default(false)
+  referralCode      String     @unique
+  referredById      String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  helperProfile    HelperProfile?
+  adminProfile     AdminProfile?
+  addresses        Address[]
+  wallet           Wallet?
+  tasksPosted      Task[]            @relation("TasksAsCustomer")
+  payments         Payment[]
+  notifications    Notification[]
+  deviceTokens     DeviceToken[]
+  reviewsWritten   Review[]          @relation("ReviewsWritten")
+  reviewsReceived  Review[]          @relation("ReviewsReceived")
+  disputesRaised   Dispute[]         @relation("DisputesRaised")
+  messagesSent     Message[]
+  promoRedemptions PromoRedemption[]
+  referredBy       Referral?         @relation("Referee")
+  referralsMade    Referral[]        @relation("Referrer")
+  blocksInitiated  BlockedUser[]     @relation("Blocker")
+  blocksReceived   BlockedUser[]     @relation("Blocked")
+  sosEvents        EmergencySOS[]
+  auditLogs        AuditLog[]
+
+  @@index([phone])
+  @@index([status])
+}
+
+model HelperProfile {
+  id                    String             @id @default(cuid())
+  userId                String             @unique
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio                   String?
+  skills                String[]           @default([])
+  languages             String[]           @default(["en"])
+  kycStatus             KycStatus          @default(NOT_STARTED)
+  kycSubmittedAt        DateTime?
+  kycApprovedAt         DateTime?
+  faceVerifiedAt        DateTime?
+  aadhaarNumberMasked   String?
+  panNumberMasked       String?
+  availability          HelperAvailability @default(OFFLINE)
+  currentLat            Float?
+  currentLng            Float?
+  serviceRadiusKm       Float              @default(8)
+  rating                Decimal            @default(0) @db.Decimal(3, 2)
+  totalJobsCompleted    Int                @default(0)
+  totalJobsCancelled    Int                @default(0)
+  totalEarnings         Decimal            @default(0) @db.Decimal(12, 2)
+  onboardedAt           DateTime?
+  isTopRated            Boolean            @default(false)
+  backgroundCheckStatus String             @default("not_applicable") // future: pending, clear, flagged
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  categories      HelperCategory[]
+  kycDocuments    KycDocument[]
+  bankAccount     BankAccount?
+  tasksAssigned   Task[]            @relation("TasksAsHelper")
+  offers          TaskOffer[]
+  locationHistory LocationHistory[]
+  payoutRequests  PayoutRequest[]
+
+  @@index([availability])
+  @@index([kycStatus])
+}
+
+model TaskCategory {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  name          String
+  icon          String
+  description   String
+  isRestricted  Boolean  @default(false)
+  basePriceHint Decimal? @db.Decimal(10, 2)
+  active        Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  tasks            Task[]
+  helperCategories HelperCategory[]
+}
+
+model HelperCategory {
+  helperId   String
+  helper     HelperProfile @relation(fields: [helperId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   TaskCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([helperId, categoryId])
+}
+
+model KycDocument {
+  id              String            @id @default(cuid())
+  helperId        String
+  helper          HelperProfile     @relation(fields: [helperId], references: [id], onDelete: Cascade)
+  type            KycDocumentType
+  fileUrl         String
+  status          KycDocumentStatus @default(PENDING)
+  reviewedById    String?
+  rejectionReason String?
+  reviewedAt      DateTime?
+  createdAt       DateTime          @default(now())
+
+  @@index([helperId, type])
+}
+
+model BankAccount {
+  id                    String        @id @default(cuid())
+  helperId              String        @unique
+  helper                HelperProfile @relation(fields: [helperId], references: [id], onDelete: Cascade)
+  accountHolderName     String
+  accountNumberMasked   String
+  ifsc                  String
+  bankName              String
+  verified              Boolean       @default(false)
+  verifiedAt            DateTime?
+  razorpayFundAccountId String?
+  createdAt             DateTime      @default(now())
+
+  payoutRequests PayoutRequest[]
+}
+
+model AdminProfile {
+  id              String               @id @default(cuid())
+  userId          String               @unique
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionLevel AdminPermissionLevel @default(SUPPORT)
+  department      String?
+  createdAt       DateTime             @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Addresses
+// ─────────────────────────────────────────────────────────────────────────
+
+model Address {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String // "Home", "Office", "Other"
+  line1     String
+  line2     String?
+  landmark  String?
+  city      String   @default("Ahmedabad")
+  state     String   @default("Gujarat")
+  pincode   String
+  lat       Float
+  lng       Float
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tasksAsPickup Task[] @relation("TaskPickupAddress")
+  tasksAsDrop   Task[] @relation("TaskDropAddress")
+  tasksAsSite   Task[] @relation("TaskSiteAddress")
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tasks
+// ─────────────────────────────────────────────────────────────────────────
+
+model Task {
+  id         String         @id @default(cuid())
+  code       String         @unique // e.g. HSTLE-AHM-000123
+  customerId String
+  customer   User           @relation("TasksAsCustomer", fields: [customerId], references: [id])
+  categoryId String
+  category   TaskCategory   @relation(fields: [categoryId], references: [id])
+  helperId   String?
+  helper     HelperProfile? @relation("TasksAsHelper", fields: [helperId], references: [id])
+
+  title       String
+  description String
+  photos      String[]   @default([])
+  status      TaskStatus @default(POSTED)
+
+  priceOffered Decimal  @db.Decimal(10, 2)
+  priceFinal   Decimal? @db.Decimal(10, 2)
+  currency     String   @default("INR")
+
+  pickupAddressId String?
+  pickupAddress   Address? @relation("TaskPickupAddress", fields: [pickupAddressId], references: [id])
+  dropAddressId   String?
+  dropAddress     Address? @relation("TaskDropAddress", fields: [dropAddressId], references: [id])
+  siteAddressId   String?
+  siteAddress     Address? @relation("TaskSiteAddress", fields: [siteAddressId], references: [id])
+
+  scheduledFor DateTime?
+  isUrgent     Boolean   @default(false)
+
+  acceptedAt         DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  cancelledByType    TaskActorType?
+
+  proofPhotos   String[]  @default([])
+  proofNotes    String?
+  completionOtp String?
+  otpVerifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offers           TaskOffer[]
+  statusEvents     TaskStatusEvent[]
+  escrow           Escrow?
+  chat             Chat?
+  reviews          Review[]
+  dispute          Dispute?
+  payments         Payment[]
+  locationHistory  LocationHistory[]
+  sosEvents        EmergencySOS[]
+  promoRedemptions PromoRedemption[]
+
+  @@index([status])
+  @@index([customerId])
+  @@index([helperId])
+  @@index([categoryId])
+}
+
+model TaskOffer {
+  id           String          @id @default(cuid())
+  taskId       String
+  task         Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  helperId     String
+  helper       HelperProfile   @relation(fields: [helperId], references: [id], onDelete: Cascade)
+  offeredPrice Decimal         @db.Decimal(10, 2)
+  message      String?
+  status       TaskOfferStatus @default(PENDING)
+  createdAt    DateTime        @default(now())
+
+  @@unique([taskId, helperId])
+  @@index([taskId])
+}
+
+model TaskStatusEvent {
+  id        String        @id @default(cuid())
+  taskId    String
+  task      Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  status    TaskStatus
+  actorType TaskActorType
+  actorId   String?
+  note      String?
+  createdAt DateTime      @default(now())
+
+  @@index([taskId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Payments, Escrow, Wallet
+// ─────────────────────────────────────────────────────────────────────────
+
+model Escrow {
+  id           String       @id @default(cuid())
+  taskId       String       @unique
+  task         Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  amount       Decimal      @db.Decimal(10, 2)
+  platformFee  Decimal      @db.Decimal(10, 2)
+  helperPayout Decimal      @db.Decimal(10, 2)
+  status       EscrowStatus @default(HOLDING)
+  paymentId    String?      @unique
+  payment      Payment?     @relation(fields: [paymentId], references: [id])
+  heldAt       DateTime     @default(now())
+  releasedAt   DateTime?
+  refundedAt   DateTime?
+}
+
+model Payment {
+  id                String          @id @default(cuid())
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  taskId            String?
+  task              Task?           @relation(fields: [taskId], references: [id])
+  provider          PaymentProvider
+  providerPaymentId String?
+  method            String? // upi, card, netbanking, wallet
+  amount            Decimal         @db.Decimal(10, 2)
+  currency          String          @default("INR")
+  status            PaymentStatus   @default(CREATED)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  escrow  Escrow?
+  invoice Invoice?
+
+  @@index([userId])
+  @@index([taskId])
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  paymentId     String   @unique
+  payment       Payment  @relation(fields: [paymentId], references: [id])
+  invoiceNumber String   @unique
+  gstin         String?
+  taxableAmount Decimal  @db.Decimal(10, 2)
+  gstAmount     Decimal  @db.Decimal(10, 2)
+  totalAmount   Decimal  @db.Decimal(10, 2)
+  pdfUrl        String?
+  createdAt     DateTime @default(now())
+}
+
+model Wallet {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance        Decimal  @default(0) @db.Decimal(12, 2)
+  pendingBalance Decimal  @default(0) @db.Decimal(12, 2)
+  currency       String   @default("INR")
+  updatedAt      DateTime @updatedAt
+
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id            String        @id @default(cuid())
+  walletId      String
+  wallet        Wallet        @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type          WalletTxnType
+  amount        Decimal       @db.Decimal(12, 2)
+  balanceAfter  Decimal       @db.Decimal(12, 2)
+  referenceType String? // TASK, PAYOUT, PROMO, REFERRAL
+  referenceId   String?
+  description   String
+  createdAt     DateTime      @default(now())
+
+  @@index([walletId])
+}
+
+model PayoutRequest {
+  id            String        @id @default(cuid())
+  helperId      String
+  helper        HelperProfile @relation(fields: [helperId], references: [id])
+  amount        Decimal       @db.Decimal(12, 2)
+  status        PayoutStatus  @default(PENDING)
+  bankAccountId String
+  bankAccount   BankAccount   @relation(fields: [bankAccountId], references: [id])
+  requestedAt   DateTime      @default(now())
+  processedAt   DateTime?
+  failureReason String?
+
+  @@index([helperId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Chat & Notifications
+// ─────────────────────────────────────────────────────────────────────────
+
+model Chat {
+  id        String   @id @default(cuid())
+  taskId    String   @unique
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  messages Message[]
+}
+
+model Message {
+  id        String      @id @default(cuid())
+  chatId    String
+  chat      Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User        @relation(fields: [senderId], references: [id])
+  type      MessageType @default(TEXT)
+  content   String?
+  mediaUrl  String?
+  readAt    DateTime?
+  createdAt DateTime    @default(now())
+
+  @@index([chatId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+}
+
+model DeviceToken {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String         @unique
+  platform  DevicePlatform
+  createdAt DateTime       @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Reviews, Disputes, Trust & Safety
+// ─────────────────────────────────────────────────────────────────────────
+
+model Review {
+  id         String          @id @default(cuid())
+  taskId     String
+  task       Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  reviewerId String
+  reviewer   User            @relation("ReviewsWritten", fields: [reviewerId], references: [id])
+  revieweeId String
+  reviewee   User            @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  direction  ReviewDirection
+  rating     Int
+  comment    String?
+  tags       String[]        @default([])
+  createdAt  DateTime        @default(now())
+
+  @@unique([taskId, direction])
+  @@index([revieweeId])
+}
+
+model Dispute {
+  id             String        @id @default(cuid())
+  taskId         String        @unique
+  task           Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  raisedById     String
+  raisedBy       User          @relation("DisputesRaised", fields: [raisedById], references: [id])
+  raisedByType   TaskActorType
+  reason         DisputeReason
+  description    String
+  evidencePhotos String[]      @default([])
+  status         DisputeStatus @default(OPEN)
+  resolutionNote String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  refundAmount   Decimal?      @db.Decimal(10, 2)
+  createdAt      DateTime      @default(now())
+
+  messages DisputeMessage[]
+
+  @@index([status])
+}
+
+model DisputeMessage {
+  id         String        @id @default(cuid())
+  disputeId  String
+  dispute    Dispute       @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  senderId   String
+  senderType TaskActorType
+  content    String
+  createdAt  DateTime      @default(now())
+
+  @@index([disputeId])
+}
+
+model BlockedUser {
+  id        String   @id @default(cuid())
+  blockerId String
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id])
+  blockedId String
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id])
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+}
+
+model EmergencySOS {
+  id          String    @id @default(cuid())
+  taskId      String?
+  task        Task?     @relation(fields: [taskId], references: [id])
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  lat         Float
+  lng         Float
+  status      SosStatus @default(TRIGGERED)
+  notes       String?
+  triggeredAt DateTime  @default(now())
+  resolvedAt  DateTime?
+}
+
+model LocationHistory {
+  id         String        @id @default(cuid())
+  helperId   String
+  helper     HelperProfile @relation(fields: [helperId], references: [id], onDelete: Cascade)
+  taskId     String?
+  task       Task?         @relation(fields: [taskId], references: [id])
+  lat        Float
+  lng        Float
+  recordedAt DateTime      @default(now())
+
+  @@index([helperId, recordedAt])
+  @@index([taskId])
+}
+
+model AuditLog {
+  id         String         @id @default(cuid())
+  actorId    String?
+  actor      User?          @relation(fields: [actorId], references: [id])
+  actorType  AuditActorType
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime       @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Growth: Promo codes, Referrals, Commission
+// ─────────────────────────────────────────────────────────────────────────
+
+model PromoCode {
+  id            String       @id @default(cuid())
+  code          String       @unique
+  description   String
+  discountType  DiscountType
+  discountValue Decimal      @db.Decimal(10, 2)
+  maxDiscount   Decimal?     @db.Decimal(10, 2)
+  minTaskValue  Decimal?     @db.Decimal(10, 2)
+  usageLimit    Int?
+  usageCount    Int          @default(0)
+  perUserLimit  Int          @default(1)
+  validFrom     DateTime     @default(now())
+  validUntil    DateTime?
+  active        Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+
+  redemptions PromoRedemption[]
+}
+
+model PromoRedemption {
+  id              String    @id @default(cuid())
+  promoId         String
+  promo           PromoCode @relation(fields: [promoId], references: [id])
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  taskId          String?
+  task            Task?     @relation(fields: [taskId], references: [id])
+  discountApplied Decimal   @db.Decimal(10, 2)
+  redeemedAt      DateTime  @default(now())
+
+  @@index([promoId, userId])
+}
+
+model Referral {
+  id                   String         @id @default(cuid())
+  referrerId           String
+  referrer             User           @relation("Referrer", fields: [referrerId], references: [id])
+  refereeId            String         @unique
+  referee              User           @relation("Referee", fields: [refereeId], references: [id])
+  code                 String
+  status               ReferralStatus @default(PENDING)
+  referrerRewardAmount Decimal?       @db.Decimal(10, 2)
+  refereeRewardAmount  Decimal?       @db.Decimal(10, 2)
+  completedAt          DateTime?
+  createdAt            DateTime       @default(now())
+}
+
+model CommissionSetting {
+  id                String   @id @default(cuid())
+  categoryId        String? // null = platform-wide default
+  commissionPercent Decimal  @db.Decimal(5, 2)
+  effectiveFrom     DateTime @default(now())
+  createdAt         DateTime @default(now())
+}
