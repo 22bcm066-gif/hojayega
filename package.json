@@ -1,0 +1,19 @@
+{
+  "name": "hstle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HSTLE — Anything legal. Handled. Monorepo for web, API, and product docs.",
+  "scripts": {
+    "dev:web": "pnpm --filter @hstle/web dev",
+    "dev:api": "pnpm --filter @hstle/api start:dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @hstle/web build",
+    "build:api": "pnpm --filter @hstle/api build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.0"
+}
