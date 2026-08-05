@@ -75,4 +75,5 @@ export class WalletService {
           orderBy: { requestedAt: 'desc' },
         });
       });
+  }
 }
